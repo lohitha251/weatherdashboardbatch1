@@ -1,4 +1,4 @@
-import streamlit as st
+mport streamlit as st
 import requests
 from datetime import datetime
 
@@ -44,11 +44,6 @@ def wind_direction(degree):
     return directions[idx]
 
 # API calls
-'''
-geocode api : to get the latitude and longitude of the city
-open meteo api : to get the weather data of the city
-'''
-
 def geocode(city):
     r = requests.get(
         "https://geocoding-api.open-meteo.com/v1/search",
@@ -90,15 +85,95 @@ unit = st.radio("Select temperature unit", ("Celsius", "Fahrenheit"), horizontal
 if not city:
     st.info("Please enter a city name to get weather information.")
     st.stop()
-with st.spinner("Fetching location data....."):
+
+# Get location data
+with st.spinner("Fetching location data..."):
     try:
-        locations=geocode(city)
+        locations = geocode(city)
     except Exception as e:
         st.error(f"Geocode Failed: {e}")
         st.stop()
+
 if not locations:
-    st.warning("No locations found Please check city name ")
+    st.warning("No locations found. Please check city name.")
     st.stop()
-options=[f"{r['name']},{r.get('admin1','')},{r['country']}" for r in locations]
-chosen_ind=st.selectbox("Select correct location",range(len(options)),format_func=lambda x:options[x])
-loc=locations[chosen_ind]
+
+# Create readable location options
+options = [f"{r['name']}, {r.get('admin1', '')}, {r['country']}" for r in locations]
+
+# Let user select location directly
+selected_option = st.selectbox("Select correct location", options)
+
+# Find selected location
+selected_index = options.index(selected_option)
+loc = locations[selected_index]
+
+lat = loc["latitude"]
+lon = loc["longitude"]
+city_name = loc["name"]
+country = loc.get("country", "Unknown")
+
+# Fetch weather data
+with st.spinner("Fetching weather data..."):
+    try:
+        data = fetch_weather(lat, lon)
+    except Exception as e:
+        st.error(f"Weather API Failed: {e}")
+        st.stop()
+
+current = data.get("current", {})
+daily = data.get("daily", {})
+
+temp = current.get("temperature_2m", 0)
+feels_like = current.get("apparent_temperature", 0)
+humidity = current.get("relative_humidity_2m", 0)
+wind_speed = current.get("wind_speed_10m", 0)
+wind_dir = current.get("wind_direction_10m", 0)
+precipitation = current.get("precipitation", 0)
+weather_code = current.get("weather_code", -1)
+
+# Convert units if needed
+if unit == "Fahrenheit":
+    temp = (temp * 9/5) + 32
+    feels_like = (feels_like * 9/5) + 32
+    temp_unit = "°F"
+else:
+    temp_unit = "°C"
+
+# Current weather display
+st.subheader(f"Current Weather in {city_name}, {country}")
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.metric("Temperature", f"{temp:.1f}{temp_unit}")
+    st.metric("Feels Like", f"{feels_like:.1f}{temp_unit}")
+
+with c2:
+    st.metric("Humidity", f"{humidity}%")
+    st.metric("Precipitation", f"{precipitation} mm")
+
+with c3:
+    st.metric("Wind Speed", f"{wind_speed} km/h")
+    st.metric("Wind Direction", wind_direction(wind_dir))
+
+st.success(f"Condition: {get_wmo(weather_code)}")
+
+# 7-Day Forecast
+st.subheader("7-Day Forecast")
+
+max_temps = daily.get("temperature_2m_max", [])
+min_temps = daily.get("temperature_2m_min", [])
+
+# Convert forecast temperatures if Fahrenheit selected
+if unit == "Fahrenheit":
+    max_temps = [(t * 9/5) + 32 for t in max_temps]
+    min_temps = [(t * 9/5) + 32 for t in min_temps]
+
+forecast_data = {
+    "Day": [f"Day {i+1}" for i in range(len(max_temps))],
+    "Max Temp": max_temps,
+    "Min Temp": min_temps
+}
+
+st.line_chart(data=forecast_data, x="Day", y=["Max Temp", "Min Temp"])
